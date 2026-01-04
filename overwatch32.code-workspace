@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"name": "esp32-overwatch32",
+			"path": "."
+		}
+	],
+	"settings": {}
+}

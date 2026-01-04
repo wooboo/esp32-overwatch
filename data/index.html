@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 Network Monitor</title>
+  <style>
+    :root { --bg:#0f1720; --card:#111926; --text:#e8edf3; --muted:#94a3b8; --accent:#2dd4bf; --accent-2:#20b9a8; --danger:#f87171; --border:#30404f; }
+    body{margin:0;padding:0;font-family:"Inter", "Segoe UI", system-ui, -apple-system, sans-serif;background:var(--bg);color:var(--text);} 
+    .shell{max-width:1100px;margin:0 auto;padding:20px;} 
+    h1{margin:0 0 12px 0;font-size:24px;}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+    .chip{padding:6px 10px;border-radius:999px;background:#24303c;border:1px solid var(--border);font-weight:600;font-size:13px;}
+    .chip.ok{background:#1f6f3c;border-color:var(--accent);} 
+    .chip.bad{background:#5a1d1d;border-color:var(--danger);} 
+    .chip.muted{background:#24303c;border-color:var(--border);color:var(--muted);} 
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,0.35);} 
+    label{font-weight:700;font-size:13px;display:block;margin-top:8px;margin-bottom:4px;}
+    input,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:#15202b;color:var(--text);font-size:14px;}
+    textarea{min-height:120px;}
+    .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+    button{padding:10px 14px;border-radius:10px;border:0;background:var(--accent);color:#0f1720;font-weight:800;cursor:pointer;box-shadow:0 6px 18px rgba(45,212,191,0.25);} 
+    button.secondary{background:#233041;color:var(--text);} 
+    button.danger{background:var(--danger);color:#0f1720;} 
+    button:hover{background:var(--accent-2);} 
+    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}
+    th,td{padding:8px;border-bottom:1px solid var(--border);text-align:left;}
+    th{color:var(--muted);font-weight:700;font-size:12px;letter-spacing:0.02em;}
+    .pill{padding:4px 8px;border-radius:999px;font-weight:700;font-size:12px;display:inline-block;}
+    .pill.on{background:#1f6f3c;border:1px solid var(--accent);} 
+    .pill.off{background:#4a1f1f;border:1px solid var(--danger);} 
+    .muted{color:var(--muted);} 
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <h1>ESP32 Network Monitor</h1>
+    <div class="chips">
+      <span id="wifi_status" class="chip">WiFi: --</span>
+      <span id="mqtt_status" class="chip">MQTT: --</span>
+      <span id="scan_status" class="chip muted">Last scan: --</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Connectivity</h3>
+        <label>WiFi SSID</label>
+        <input id="ssid" placeholder="Network name">
+        <label>WiFi Password</label>
+        <input id="pass" type="password" placeholder="Password">
+        <label>MQTT Host</label>
+        <input id="mqtt_host" placeholder="192.168.1.10">
+        <label>MQTT Port</label>
+        <input id="mqtt_port" type="number" min="1" max="65535" placeholder="1883">
+        <label>MQTT User</label>
+        <input id="mqtt_user">
+        <label>MQTT Password</label>
+        <input id="mqtt_pass" type="password">
+        <label>Scan interval (ms)</label>
+        <input id="scan_interval" type="number" min="60000" placeholder="300000">
+        <div class="actions">
+          <button onclick="save()">Save & Reboot</button>
+          <button class="secondary" onclick="runScan()">Run Scan</button>
+          <button class="secondary" onclick="loadResults()">Refresh Results</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Targets</h3>
+        <label>Subnets (one per line, CIDR)</label>
+        <textarea id="subnets" placeholder="10.11.12.0/22\n10.11.16.0/24"></textarea>
+        <label>Static hosts (ip[:port][|name] per line)</label>
+        <textarea id="hosts" placeholder="10.11.12.6:8123|HA VM\n10.11.99.1|OPNsense"></textarea>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:14px;">
+      <div class="card">
+        <h3>Subnets</h3>
+        <div id="subnet_list" class="muted">No scan data yet.</div>
+      </div>
+      <div class="card">
+        <h3>Static Hosts</h3>
+        <div id="host_list" class="muted">No scan data yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+
+    function val(id){return el(id).value;}
+    function setVal(id,v){el(id).value = v || '';} 
+
+    function renderStatus(status){
+      const wifi = el('wifi_status');
+      const mqtt = el('mqtt_status');
+      const scan = el('scan_status');
+
+      const wifiText = status.wifi_connected ? (status.wifi_ip ? `connected (${status.wifi_ip})` : 'connected') : 'offline';
+      wifi.textContent = `WiFi: ${wifiText}`;
+      wifi.className = `chip ${status.wifi_connected ? 'ok' : 'bad'}`;
+
+      const mqttText = status.mqtt_connected ? 'connected' : `offline${status.mqtt_reason ? ' ('+status.mqtt_reason+')' : ''}`;
+      mqtt.textContent = `MQTT: ${mqttText}`;
+      mqtt.className = `chip ${status.mqtt_connected ? 'ok' : 'bad'}`;
+
+      scan.className = 'chip muted';
+    }
+
+    function renderScanMeta(results){
+      const scan = el('scan_status');
+      if (!results || !results.last_scan_ms) { scan.textContent = 'Last scan: never'; return; }
+      const deviceNow = results.device_now_ms || 0;
+      const ageMs = deviceNow >= results.last_scan_ms ? (deviceNow - results.last_scan_ms) : 0;
+      const ageSec = Math.floor(ageMs / 1000);
+      scan.textContent = `Last scan: ${ageSec}s ago (device time)`;
+      scan.className = 'chip';
+    }
+
+    function renderSubnets(list){
+      const wrap = el('subnet_list');
+      if (!list || !list.length) { wrap.textContent = 'No scan data yet.'; wrap.className='muted'; return; }
+      let html = '<table><thead><tr><th>CIDR</th><th>Online</th></tr></thead><tbody>';
+      list.forEach(item=>{ html += `<tr><td>${item.cidr}</td><td>${item.online}</td></tr>`; });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+      wrap.className='';
+    }
+
+    function renderHosts(list){
+      const wrap = el('host_list');
+      if (!list || !list.length) { wrap.textContent = 'No scan data yet.'; wrap.className='muted'; return; }
+      let html = '<table><thead><tr><th>Host</th><th>Name</th><th>Status</th></tr></thead><tbody>';
+      list.forEach(item=>{
+        const label = item.port ? `${item.ip}:${item.port}` : item.ip;
+        const status = item.online ? '<span class="pill on">online</span>' : '<span class="pill off">offline</span>';
+        html += `<tr><td>${label}</td><td>${item.name||''}</td><td>${status}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+      wrap.className='';
+    }
+
+    async function loadConfig(){
+      const r = await fetch('/config');
+      const data = await r.json();
+      setVal('ssid', data.wifi_ssid);
+      setVal('pass', data.wifi_pass);
+      setVal('mqtt_host', data.mqtt_host);
+      setVal('mqtt_port', data.mqtt_port || 1883);
+      setVal('mqtt_user', data.mqtt_user);
+      setVal('mqtt_pass', data.mqtt_pass);
+      setVal('scan_interval', data.scan_interval_ms || 300000);
+      setVal('subnets', (data.subnets || []).join('\n'));
+      setVal('hosts', (data.static_hosts || []).map(h=>{
+        let line = h.ip;
+        if (h.port) line += ':'+h.port;
+        if (h.name) line += '|' + h.name;
+        return line;
+      }).join('\n'));
+    }
+
+    async function loadStatus(){
+      try {
+        const r = await fetch('/status');
+        const data = await r.json();
+        renderStatus(data);
+      } catch(e) {}
+    }
+
+    async function loadResults(){
+      try {
+        const r = await fetch('/scan_results');
+        const data = await r.json();
+        renderScanMeta(data);
+        renderSubnets(data.subnets);
+        renderHosts(data.hosts);
+      } catch(e) {
+        const scan = el('scan_status');
+        scan.textContent = 'Scan data unavailable';
+        scan.className = 'chip bad';
+      }
+    }
+
+    async function save(){
+      const payload = {
+        wifi_ssid: val('ssid'),
+        wifi_pass: val('pass'),
+        mqtt_host: val('mqtt_host'),
+        mqtt_port: parseInt(val('mqtt_port')) || 1883,
+        mqtt_user: val('mqtt_user'),
+        mqtt_pass: val('mqtt_pass'),
+        scan_interval_ms: parseInt(val('scan_interval')) || 300000,
+        subnets: val('subnets').split('\n').filter(Boolean),
+        hosts: val('hosts').split('\n').filter(Boolean)
+      };
+      await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      alert('Saved, rebooting...');
+    }
+
+    async function runScan(){
+      await fetch('/scan');
+      await loadResults();
+    }
+
+    loadConfig();
+    loadStatus();
+    loadResults();
+    setInterval(loadStatus, 5000);
+    setInterval(loadResults, 10000);
+  </script>
+</body>
+</html>
