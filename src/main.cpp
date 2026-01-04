@@ -39,6 +39,7 @@ namespace
   const char *AVAIL_TOPIC = "esp-overwatch/availability";
   const char *AVAIL_ON = "online";
   const char *AVAIL_OFF = "offline";
+  const uint8_t SCAN_STEP_BUDGET = 1; // number of hosts to process per loop iteration
 }
 
 struct StaticHost
@@ -88,7 +89,6 @@ WiFiClient wifiClient;
 PubSubClient mqtt_client(wifiClient);
 Config config;
 bool captivePortal = false;
-unsigned long lastScanMs = 0;
 std::set<String> seenHosts;
 String mqttReason = "init";
 bool lastWifiConnected = false;
@@ -97,6 +97,22 @@ int lastMqttState = 0;
 std::vector<SubnetScanResult> lastSubnetResults;
 std::vector<HostScanResult> lastHostResults;
 unsigned long lastScanCompletedMs = 0;
+unsigned long lastScanStartMs = 0;
+std::set<String> prevOnlineHosts;
+
+struct ScanState
+{
+  bool active = false;
+  bool mqttReady = false;
+  size_t hostIndex = 0;
+  size_t subnetIndex = 0;
+  uint32_t subnetCursor = 0;
+  int currentOnline = 0;
+  int foundOnlineCount = 0;
+  std::set<String> currentOnlineHosts;
+};
+
+ScanState scanState;
 
 uint32_t ipToInt(const IPAddress &ip)
 {
@@ -422,10 +438,21 @@ void publishHostStatus(const StaticHost &host, bool online)
   mqtt_client.publish(topic.c_str(), online ? "online" : "offline", true);
 }
 
+void publishHostStatusIp(const String &ip, bool online)
+{
+  String topic = "esp-overwatch/host/" + ip + "/status";
+  mqtt_client.publish(topic.c_str(), online ? "online" : "offline", true);
+}
+
 void publishNewHost(const String &ip)
 {
   String topic = "esp-overwatch/host/" + ip + "/discovered";
   mqtt_client.publish(topic.c_str(), "1", false);
+}
+
+void publishFoundCount(int count)
+{
+  mqtt_client.publish("esp-overwatch/hosts/found_count", String(count).c_str(), false);
 }
 
 void publishAvailability(const char *payload)
@@ -433,86 +460,159 @@ void publishAvailability(const char *payload)
   mqtt_client.publish(AVAIL_TOPIC, payload, true);
 }
 
-void doScan(bool reply_request)
+void finishScan()
 {
-  bool mqttReady = mqtt_client.connected();
-  lastSubnetResults.clear();
-  lastHostResults.clear();
+  scanState.active = false;
+  prevOnlineHosts = scanState.currentOnlineHosts;
+  lastScanCompletedMs = millis();
+  Serial.println("Scan complete");
+}
 
-  for (const auto &h : config.static_hosts)
+void finishSubnet()
+{
+  const Subnet &subnet = config.subnets[scanState.subnetIndex];
+  SubnetScanResult r;
+  r.cidr = subnet.cidr;
+  r.online = scanState.currentOnline;
+  lastSubnetResults.push_back(r);
+  if (scanState.mqttReady)
+    publishOnlineCount(subnet, scanState.currentOnline);
+  scanState.subnetIndex++;
+  if (scanState.subnetIndex < config.subnets.size())
   {
-    bool ok = false;
-    if (h.port)
-    {
-      ok = portOpen(h.ip, h.port);
-    }
-    else
-    {
-      IPAddress parsed;
-      if (parsed.fromString(h.ip))
-        ok = pingHost(parsed);
-    }
-    Serial.print("scan host ");
-    Serial.print(h.ip);
-    if (h.port)
-    {
-      Serial.print(":");
-      Serial.print(h.port);
-      Serial.print(" tcp ");
-    }
-    else
-    {
-      Serial.print(" ping ");
-    }
-    Serial.println(ok ? "online" : "offline");
-    HostScanResult hr;
-    hr.ip = h.ip;
-    hr.port = h.port;
-    hr.name = h.name;
-    hr.online = ok;
-    lastHostResults.push_back(hr);
-    if (mqttReady)
-      publishHostStatus(h, ok);
+    scanState.subnetCursor = config.subnets[scanState.subnetIndex].firstHost;
+    scanState.currentOnline = 0;
   }
-
-  for (const auto &subnet : config.subnets)
+  else
   {
-    int online = 0;
-    for (uint32_t ipInt = subnet.firstHost; ipInt <= subnet.lastHost; ipInt++)
+    finishScan();
+  }
+}
+
+void stepScan()
+{
+  if (!scanState.active)
+    return;
+
+  uint8_t budget = SCAN_STEP_BUDGET;
+  while (budget-- && scanState.active)
+  {
+    if (scanState.hostIndex < config.static_hosts.size())
     {
-      IPAddress target = intToIp(ipInt);
-      bool ok = pingHost(target);
+      const auto &h = config.static_hosts[scanState.hostIndex];
+      bool ok = false;
+      if (h.port)
+      {
+        ok = portOpen(h.ip, h.port);
+      }
+      else
+      {
+        IPAddress parsed;
+        if (parsed.fromString(h.ip))
+          ok = pingHost(parsed);
+      }
+      Serial.print("scan host ");
+      Serial.print(h.ip);
+      if (h.port)
+      {
+        Serial.print(":");
+        Serial.print(h.port);
+        Serial.print(" tcp ");
+      }
+      else
+      {
+        Serial.print(" ping ");
+      }
+      Serial.println(ok ? "online" : "offline");
+      HostScanResult hr;
+      hr.ip = h.ip;
+      hr.port = h.port;
+      hr.name = h.name;
+      hr.online = ok;
+      lastHostResults.push_back(hr);
       if (ok)
       {
-        online++;
-        String ipStr = target.toString();
-        if (mqttReady && seenHosts.insert(ipStr).second)
-          publishNewHost(ipStr);
+        scanState.currentOnlineHosts.insert(h.ip);
+        bool newSincePrev = prevOnlineHosts.find(h.ip) == prevOnlineHosts.end();
+        if (newSincePrev)
+          scanState.foundOnlineCount++;
+        if (scanState.mqttReady)
+        {
+          publishHostStatus(h, true);
+          publishFoundCount(scanState.foundOnlineCount);
+        }
       }
-      Serial.print("scan subnet ");
-      Serial.print(subnet.cidr);
-      Serial.print(" host ");
-      Serial.print(target);
-      Serial.print(" ping ");
-      Serial.println(ok ? "online" : "offline");
-      delay(1);
-      if (ipInt == 0xFFFFFFFF)
-        break; // guard overflow
+      else if (scanState.mqttReady)
+      {
+        publishHostStatus(h, false);
+      }
+      scanState.hostIndex++;
+      continue;
     }
-    SubnetScanResult r;
-    r.cidr = subnet.cidr;
-    r.online = online;
-    lastSubnetResults.push_back(r);
-    if (mqttReady)
-      publishOnlineCount(subnet, online);
-  }
 
-  lastScanCompletedMs = millis();
+    if (scanState.subnetIndex >= config.subnets.size())
+    {
+      finishScan();
+      break;
+    }
 
-  if (reply_request)
-  {
-    server.send(mqttReady ? 200 : 202, "text/plain", mqttReady ? "Scan done" : "Scan done, MQTT offline");
+    const Subnet &subnet = config.subnets[scanState.subnetIndex];
+    IPAddress target = intToIp(scanState.subnetCursor);
+    bool ok = pingHost(target);
+    if (ok)
+    {
+      scanState.currentOnline++;
+      String ipStr = target.toString();
+      scanState.currentOnlineHosts.insert(ipStr);
+      bool newSincePrev = prevOnlineHosts.find(ipStr) == prevOnlineHosts.end();
+      if (newSincePrev)
+        scanState.foundOnlineCount++;
+      if (scanState.mqttReady)
+      {
+        if (newSincePrev && seenHosts.insert(ipStr).second)
+          publishNewHost(ipStr);
+        publishFoundCount(scanState.foundOnlineCount);
+      }
+      if (scanState.mqttReady)
+        publishHostStatusIp(ipStr, true);
+    }
+    Serial.print("scan subnet ");
+    Serial.print(subnet.cidr);
+    Serial.print(" host ");
+    Serial.print(target);
+    Serial.print(" ping ");
+    Serial.println(ok ? "online" : "offline");
+
+    if (scanState.subnetCursor >= subnet.lastHost)
+    {
+      finishSubnet();
+    }
+    else
+    {
+      scanState.subnetCursor++;
+    }
   }
+}
+
+bool startScan()
+{
+  if (scanState.active)
+    return false;
+
+  lastHostResults.clear();
+  lastSubnetResults.clear();
+  prevOnlineHosts = scanState.currentOnlineHosts;
+  scanState.currentOnlineHosts.clear();
+  scanState.foundOnlineCount = 0;
+  scanState.active = true;
+  scanState.mqttReady = mqtt_client.connected();
+  scanState.hostIndex = 0;
+  scanState.subnetIndex = 0;
+  scanState.subnetCursor = config.subnets.empty() ? 0 : config.subnets[0].firstHost;
+  scanState.currentOnline = 0;
+  lastScanStartMs = millis();
+  Serial.println("Scan started");
+  return true;
 }
 
 bool connectWifi()
@@ -777,7 +877,14 @@ void handleSave()
 
 void handleScan()
 {
-  doScan(true);
+  if (startScan())
+  {
+    server.send(202, "text/plain", "Scan started");
+  }
+  else
+  {
+    server.send(202, "text/plain", "Scan already running");
+  }
 }
 
 void handleNotFound()
@@ -832,14 +939,12 @@ void setup()
   if (mqtt_client.connected())
   {
     Serial.println("Initial scan after MQTT connect");
-    doScan(false);
+    startScan();
   }
   else
   {
     Serial.println("Initial scan skipped (MQTT offline)");
   }
-
-  lastScanMs = millis();
   Serial.println("Setup done");
 }
 
@@ -852,10 +957,11 @@ void loop()
   ensureMqtt();
   mqtt_client.loop();
 
+  stepScan();
+
   unsigned long now = millis();
-  if (now - lastScanMs >= config.scan_interval_ms)
+  if (!scanState.active && (now - lastScanStartMs >= config.scan_interval_ms))
   {
-    doScan(false);
-    lastScanMs = now;
+    startScan();
   }
 }
