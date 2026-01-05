@@ -16,12 +16,22 @@ void MqttManager::ensureConnected(bool wifiConnected, bool captivePortal)
   if (!config.mqtt_host.length()) { mqttReason = "no_host"; return; }
   if (!wifiConnected) { mqttReason = "wifi_offline"; return; }
   if (mqtt.connected()) {
-    if (!lastMqttConnected) Serial.println("MQTT connected");
+    if (!lastMqttConnected) {
+      Serial.println("MQTT connected");
+      mqttBackoffMs = 1000;
+    }
     lastMqttConnected = true;
     mqttReason = "connected";
     return;
   }
 
+  unsigned long now = millis();
+  if (now - lastMqttAttemptMs < mqttBackoffMs) {
+    mqttReason = String("backoff_") + (mqttBackoffMs / 1000) + "s";
+    return;
+  }
+
+  lastMqttAttemptMs = now;
   mqtt.setServer(config.mqtt_host.c_str(), config.mqtt_port);
   bool ok;
   if (config.mqtt_user.length()) {
@@ -42,16 +52,22 @@ void MqttManager::ensureConnected(bool wifiConnected, bool captivePortal)
     Serial.println("MQTT connected");
     lastMqttConnected = true;
     mqttReason = "connected";
+    mqttBackoffMs = 1000;
     publishAvailability(AVAIL_ON);
   } else {
     int state = mqtt.state();
     if (!lastMqttConnected || state != lastMqttState) {
       Serial.print("MQTT connect failed, state ");
-      Serial.println(state);
+      Serial.print(state);
+      Serial.print(", next retry in ");
+      Serial.print(mqttBackoffMs / 1000);
+      Serial.println("s");
     }
     lastMqttConnected = false;
     lastMqttState = state;
     mqttReason = String("connect_failed_") + state;
+    
+    mqttBackoffMs = min(mqttBackoffMs * BACKOFF_MULTIPLIER, MAX_BACKOFF_MS);
   }
 }
 
