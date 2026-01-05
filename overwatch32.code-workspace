@@ -4,7 +4,7 @@
 			"path": ".."
 		},
 		{
-			"name": "esp32-overwatch32",
+			"name": "esp32-overwatch",
 			"path": "."
 		}
 	],

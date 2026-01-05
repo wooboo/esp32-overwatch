@@ -1,4 +1,4 @@
-# ESP32 Overwatch32 - Improvement Roadmap
+# ESP32 Overwatch - Improvement Roadmap
 
 This document outlines identified improvements for the ESP32 network monitoring solution, organized by priority and category.
 
