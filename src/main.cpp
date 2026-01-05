@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <functional>
+#include <esp_task_wdt.h>
 
 #include "config_store.h"
 #include "mqtt_manager.h"
@@ -25,6 +26,10 @@ void setup()
   Serial.begin(115200);
   delay(200);
   Serial.println("Booting ESP32 Overwatch...");
+
+  // Initialize watchdog timer with 30 second timeout
+  esp_task_wdt_init(30, true);
+  esp_task_wdt_add(nullptr);
 
   configStore.ensureFsMounted();
   configStore.load();
@@ -67,6 +72,9 @@ void setup()
 
 void loop()
 {
+  // Feed watchdog timer at start of loop
+  esp_task_wdt_reset();
+  
   wifi.loop();
   mqttManager.ensureConnected(wifi.isWifiUp(), wifi.isCaptive());
   mqttManager.loop();

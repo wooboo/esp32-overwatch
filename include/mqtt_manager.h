@@ -29,6 +29,13 @@ private:
   bool lastMqttConnected = false;
   int lastMqttState = 0;
   String mqttReason = "init";
+  
+  // Backoff timing variables
+  unsigned long lastMqttAttemptMs = 0;
+  unsigned long mqttBackoffMs = 1000; // Start with 1 second
+  static constexpr unsigned long MAX_BACKOFF_MS = 60000; // Max 60 seconds
+  static constexpr unsigned long BACKOFF_MULTIPLIER = 2;
+  
   static constexpr const char* AVAIL_TOPIC = "esp-overwatch/availability";
   static constexpr const char* AVAIL_ON = "online";
   static constexpr const char* AVAIL_OFF = "offline";
