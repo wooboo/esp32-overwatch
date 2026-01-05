@@ -11,11 +11,12 @@
 
 ConfigStore configStore;
 WifiManager wifi(configStore.data());
-MqttManager mqttManager(wifi.client(), configStore.data());
+MqttManager mqttManager(configStore.data());
 NetworkScanner scanner(configStore.data(), mqttManager);
 WebApp web(configStore, scanner, mqttManager);
 
 unsigned long lastScanKickMs = 0;
+bool discoverySent = false;
 
 void setup()
 {
@@ -69,15 +70,12 @@ void loop()
   mqttManager.ensureConnected(wifi.isWifiUp(), wifi.isCaptive());
   mqttManager.loop();
 
-  if (mqttManager.isConnected())
-  {
-    static bool discoverySent = false;
-    if (!discoverySent)
-    {
-      mqttManager.publishDiscovery(configStore.data().subnets, configStore.data().static_hosts);
-      discoverySent = true;
-    }
-  }
+   if (!mqttManager.isConnected()) {
+     discoverySent = false;
+   } else if (!discoverySent) {
+     mqttManager.publishDiscovery(configStore.data().subnets, configStore.data().static_hosts);
+     discoverySent = true;
+   }
 
   scanner.step();
 

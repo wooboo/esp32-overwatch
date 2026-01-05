@@ -2,6 +2,8 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 
+static const size_t MAX_PAYLOAD_SIZE = 4096;
+
 WebApp::WebApp(ConfigStore& st, NetworkScanner& sc, MqttManager& mq)
   : store(st), scanner(sc), mqtt(mq) {}
 
@@ -123,7 +125,12 @@ void WebApp::handleSave()
     server.send(400, "text/plain", "Missing body");
     return;
   }
-  if (!store.parseConfigPayload(server.arg("plain"))) {
+  String body = server.arg("plain");
+  if (body.length() > MAX_PAYLOAD_SIZE) {
+    server.send(413, "text/plain", "Payload too large");
+    return;
+  }
+  if (!store.parseConfigPayload(body)) {
     server.send(400, "text/plain", "Invalid JSON");
     return;
   }

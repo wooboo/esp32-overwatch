@@ -13,7 +13,6 @@ public:
   bool isCaptive() const;
   bool isWifiUp() const;
   String ip() const;
-  WiFiClient& client();
 
 private:
   bool connectWifi();
@@ -23,6 +22,5 @@ private:
   DNSServer dns;
   bool captive = false;
   bool lastWifiConnected = false;
-  WiFiClient wifiClient;
   static constexpr uint16_t DNS_PORT = 53;
 };

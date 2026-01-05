@@ -84,7 +84,7 @@ bool ConfigStore::load()
   }
 
   File f = LittleFS.open(CONFIG_PATH, "r");
-  DynamicJsonDocument doc(JSON_CAPACITY);
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, f);
   f.close();
   if (err) {

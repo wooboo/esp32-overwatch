@@ -60,4 +60,3 @@ void WifiManager::loop()
 bool WifiManager::isCaptive() const { return captive; }
 bool WifiManager::isWifiUp() const { return WiFi.status() == WL_CONNECTED && !captive; }
 String WifiManager::ip() const { return isWifiUp() ? WiFi.localIP().toString() : ""; }
-WiFiClient& WifiManager::client() { return wifiClient; }

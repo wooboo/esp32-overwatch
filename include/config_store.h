@@ -6,7 +6,7 @@
 
 static const uint32_t DEFAULT_SCAN_INTERVAL_MS = 300000; // 5 minutes
 static const uint16_t DEFAULT_MQTT_PORT = 1883;
-static const uint16_t PING_TIMEOUT_MS = 250;
+static const uint16_t PING_TIMEOUT_MS = 50;
 static const uint8_t MAX_WIFI_RETRIES = 30;
 static const size_t JSON_CAPACITY = 8192;
 

@@ -7,7 +7,7 @@
 
 class MqttManager {
 public:
-  MqttManager(WiFiClient& netClient, Config& config);
+  MqttManager(Config& config);
   void ensureConnected(bool wifiConnected, bool captivePortal);
   void loop();
   bool isConnected();
@@ -23,6 +23,7 @@ public:
   void publishFoundCount(const Subnet& subnet, int count);
 
 private:
+  WiFiClient wifiClient;
   PubSubClient mqtt;
   Config& config;
   bool lastMqttConnected = false;

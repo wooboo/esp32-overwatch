@@ -1,6 +1,6 @@
 #include "mqtt_manager.h"
 
-MqttManager::MqttManager(WiFiClient& netClient, Config& cfg) : mqtt(netClient), config(cfg) {}
+MqttManager::MqttManager(Config& cfg) : mqtt(wifiClient), config(cfg) {}
 
 void MqttManager::loop() { mqtt.loop(); }
 
@@ -69,14 +69,21 @@ void MqttManager::publishDiscovery(const std::vector<Subnet>& subnets, const std
   Serial.println("Publishing Home Assistant discovery");
   for (const auto &s : subnets)
   {
-    String objectId = "overwatch_subnet_" + String(s.cidr);
-    objectId.replace("/", "_");
-    objectId.replace(".", "_");
-    String topic = "homeassistant/sensor/" + objectId + "/config";
+    char objectId[64];
+    snprintf(objectId, sizeof(objectId), "overwatch_subnet_%s", s.cidr.c_str());
+    for (char* p = objectId; *p; ++p) {
+      if (*p == '/' || *p == '.') *p = '_';
+    }
+    char topic[128];
+    snprintf(topic, sizeof(topic), "homeassistant/sensor/%s/config", objectId);
+    char name[64];
+    snprintf(name, sizeof(name), "Network %s online", s.cidr.c_str());
+    char statTopic[64];
+    snprintf(statTopic, sizeof(statTopic), "esp-overwatch/network/%s/online_count", s.cidr.c_str());
     JsonDocument doc;
-    doc["name"] = "Network " + s.cidr + " online";
+    doc["name"] = name;
     doc["uniq_id"] = objectId;
-    doc["stat_t"] = "esp-overwatch/network/" + s.cidr + "/online_count";
+    doc["stat_t"] = statTopic;
     doc["unit_of_meas"] = "hosts";
     doc["state_class"] = "measurement";
     doc["avty_t"] = AVAIL_TOPIC;
@@ -90,7 +97,7 @@ void MqttManager::publishDiscovery(const std::vector<Subnet>& subnets, const std
     dev["mf"] = "Seeed";
     String payload;
     serializeJson(doc, payload);
-    bool ok = mqtt.publish(topic.c_str(), payload.c_str(), true);
+    bool ok = mqtt.publish(topic, payload.c_str(), true);
     if (!ok) Serial.print("Failed to publish discovery message:");
     else Serial.print("Discovery subnet published: ");
     Serial.print(topic); Serial.print(" -> "); Serial.println(payload);
@@ -98,15 +105,25 @@ void MqttManager::publishDiscovery(const std::vector<Subnet>& subnets, const std
 
   for (const auto &h : hosts)
   {
-    String objectId = "overwatch_host_" + String(h.ip);
-    objectId.replace("/", "_");
-    objectId.replace(".", "_");
-    objectId.replace(":", "_");
-    String topic = "homeassistant/binary_sensor/" + objectId + "/config";
+    char objectId[64];
+    snprintf(objectId, sizeof(objectId), "overwatch_host_%s", h.ip.c_str());
+    for (char* p = objectId; *p; ++p) {
+      if (*p == '/' || *p == '.' || *p == ':') *p = '_';
+    }
+    char topic[128];
+    snprintf(topic, sizeof(topic), "homeassistant/binary_sensor/%s/config", objectId);
+    char name[64];
+    if (h.name.length()) {
+      snprintf(name, sizeof(name), "%s", h.name.c_str());
+    } else {
+      snprintf(name, sizeof(name), "Host %s", h.ip.c_str());
+    }
+    char statTopic[64];
+    snprintf(statTopic, sizeof(statTopic), "esp-overwatch/host/%s/status", h.ip.c_str());
     JsonDocument doc;
-    doc["name"] = h.name.length() ? h.name : ("Host " + h.ip);
+    doc["name"] = name;
     doc["uniq_id"] = objectId;
-    doc["stat_t"] = "esp-overwatch/host/" + h.ip + "/status";
+    doc["stat_t"] = statTopic;
     doc["pl_on"] = "online";
     doc["pl_off"] = "offline";
     doc["avty_t"] = AVAIL_TOPIC;
@@ -120,7 +137,7 @@ void MqttManager::publishDiscovery(const std::vector<Subnet>& subnets, const std
     dev["mf"] = "Seeed";
     String payload;
     serializeJson(doc, payload);
-    bool ok = mqtt.publish(topic.c_str(), payload.c_str(), true);
+    bool ok = mqtt.publish(topic, payload.c_str(), true);
     if (!ok) Serial.print("Failed to publish discovery message: ");
     else Serial.print("Discovery host published: ");
     Serial.print(topic); Serial.print(" -> "); Serial.println(payload);
