@@ -8,10 +8,10 @@ interface Props {
   localConfig: Config | null;
   onConfigChange: (updates: Partial<Config>) => void;
   onSave: () => void;
-  onScan: () => void;
+  onSaveTargets: (targets: { subnets: string[]; hosts: string[] }) => void;
 }
 
-export function SettingsPage({ config, localConfig, onConfigChange, onSave, onScan }: Props) {
+export function SettingsPage({ config, localConfig, onConfigChange, onSave, onSaveTargets }: Props) {
   const handleConfigChange = (updates: Partial<Config>) => {
     if (!localConfig && !config) return;
     onConfigChange({ ...(localConfig || config!), ...updates });
@@ -28,9 +28,12 @@ export function SettingsPage({ config, localConfig, onConfigChange, onSave, onSc
           config={effectiveConfig}
           onChange={handleConfigChange}
           onSave={onSave}
-          onScan={onScan}
         />
-        <TargetsForm config={effectiveConfig} onChange={handleConfigChange} />
+        <TargetsForm
+          config={effectiveConfig}
+          onChange={handleConfigChange}
+          onSave={onSaveTargets}
+        />
       </div>
     </div>
   );

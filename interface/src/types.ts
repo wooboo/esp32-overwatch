@@ -49,7 +49,7 @@ export interface ScanResults {
   hosts: HostResult[];
 }
 
-export type WsMessageType = 'status' | 'config' | 'scan_results' | 'scan_started';
+export type WsMessageType = 'status' | 'config' | 'scan_results' | 'scan_started' | 'targets_saved' | 'config_saved';
 
 export interface ScanProgress {
   scanning: boolean;

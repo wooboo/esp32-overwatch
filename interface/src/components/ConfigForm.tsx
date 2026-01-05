@@ -4,10 +4,9 @@ interface Props {
   config: Config | null;
   onChange: (updates: Partial<Config>) => void;
   onSave: () => void;
-  onScan: () => void;
 }
 
-export function ConfigForm({ config, onChange, onSave, onScan }: Props) {
+export function ConfigForm({ config, onChange, onSave }: Props) {
   if (!config) {
     return <Card title="Connectivity">Loading...</Card>;
   }
@@ -65,11 +64,8 @@ export function ConfigForm({ config, onChange, onSave, onScan }: Props) {
           placeholder="300000"
         />
       </Label>
-      <div class="flex flex-wrap gap-2 mt-3">
+      <div class="mt-3">
         <Button onClick={onSave}>Save & Reboot</Button>
-        <Button secondary onClick={onScan}>
-          Run Scan
-        </Button>
       </div>
     </Card>
   );

@@ -1,26 +1,31 @@
+import { useState } from 'preact/hooks';
 import type { Config } from '../types';
 
 interface Props {
   config: Config | null;
   onChange: (updates: Partial<Config>) => void;
+  onSave: (targets: { subnets: string[]; hosts: string[] }) => void;
 }
 
-export function TargetsForm({ config, onChange }: Props) {
+export function TargetsForm({ config, onChange, onSave }: Props) {
   if (!config) {
     return <Card title="Targets">Loading...</Card>;
   }
-
-  const subnetsText = config.subnets
-    .map((s) => (s.name ? `${s.cidr} # ${s.name}` : s.cidr))
-    .join('\n');
-  const hostsText = config.static_hosts
-    .map((h) => {
-      let line = h.ip;
-      if (h.port) line += `:${h.port}`;
-      if (h.name) line += ` # ${h.name}`;
-      return line;
-    })
-    .join('\n');
+  const [subnetsText, setSubnetText] = useState(() =>
+    config.subnets
+      .map((s) => (s.name ? `${s.cidr} # ${s.name}` : s.cidr))
+      .join('\n')
+  );
+  const [hostsText, setHostsText] = useState(() =>
+    config.static_hosts
+      .map((h) => {
+        let line = h.ip;
+        if (h.port) line += `:${h.port}`;
+        if (h.name) line += ` # ${h.name}`;
+        return line;
+      })
+      .join('\n')
+  );
 
   const handleSubnetsChange = (text: string) => {
     const subnets = text
@@ -33,6 +38,7 @@ export function TargetsForm({ config, onChange }: Props) {
         return { cidr, name };
       });
     onChange({ subnets });
+    setSubnetText(text);
   };
 
   const handleHostsChange = (text: string) => {
@@ -50,6 +56,22 @@ export function TargetsForm({ config, onChange }: Props) {
         };
       });
     onChange({ static_hosts: hosts });
+    setHostsText(text);
+  };
+
+  const handleSave = () => {
+    const subnets = config.subnets.map((s) => {
+      let line = s.cidr;
+      if (s.name) line += ` # ${s.name}`;
+      return line;
+    });
+    const hosts = config.static_hosts.map((h) => {
+      let line = h.ip;
+      if (h.port) line += `:${h.port}`;
+      if (h.name) line += ` # ${h.name}`;
+      return line;
+    });
+    onSave({ subnets, hosts });
   };
 
   return (
@@ -61,13 +83,16 @@ export function TargetsForm({ config, onChange }: Props) {
           placeholder="10.11.12.0/22\n10.11.16.0/24 # Office Network"
         />
       </Label>
-      <Label text="Static hosts (ip[:port] per line)">
+      <Label text="Static hosts (hostname or ip[:port] per line)">
         <Textarea
           value={hostsText}
           onChange={handleHostsChange}
-          placeholder="10.11.12.6:8123 # HA VM\n10.11.99.1 # OPNsense"
+          placeholder="10.11.12.6:8123 # HA VM\n10.11.99.1 # OPNsense\nmyserver.local:80 # My Server"
         />
       </Label>
+      <div class="mt-3">
+        <Button onClick={handleSave}>Save Targets</Button>
+      </div>
     </Card>
   );
 }
@@ -106,5 +131,21 @@ function Textarea({
       placeholder={placeholder}
       class="w-full p-2.5 rounded-lg border border-border bg-input-bg text-text text-sm min-h-[120px] resize-y"
     />
+  );
+}
+
+function Button({
+  children,
+  onClick,
+}: {
+  children: preact.ComponentChildren;
+  onClick: () => void;
+}) {
+  const base = 'px-3.5 py-2.5 rounded-xl font-extrabold cursor-pointer bg-accent text-bg shadow-md hover:bg-accent-hover';
+
+  return (
+    <button class={base} onClick={onClick}>
+      {children}
+    </button>
   );
 }

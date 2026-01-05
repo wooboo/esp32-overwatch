@@ -57,9 +57,10 @@ bool ConfigStore::parseHostLine(const String &line, StaticHost &host) const
   token.trim();
   if (!token.length()) return false;
 
-  int pipe = token.indexOf('|');
-  String meta = pipe >= 0 ? token.substring(pipe + 1) : "";
-  String ipPort = pipe >= 0 ? token.substring(0, pipe) : token;
+  int separator = token.indexOf('|');
+  if (separator < 0) separator = token.indexOf('#');  // Support both | and # separators
+  String meta = separator >= 0 ? token.substring(separator + 1) : "";
+  String ipPort = separator >= 0 ? token.substring(0, separator) : token;
 
   int colon = ipPort.indexOf(':');
   if (colon > 0) {
@@ -99,15 +100,24 @@ bool ConfigStore::load()
   config.mqtt_user = doc["mqtt"]["user"].as<String>();
   config.mqtt_pass = doc["mqtt"]["pass"].as<String>();
   config.scan_interval_ms = doc["scan_interval_ms"] | DEFAULT_SCAN_INTERVAL_MS;
+  config.resolve_names = doc["resolve_names"] | true;
 
   config.subnets.clear();
   JsonArray subs = doc["subnets"].as<JsonArray>();
   if (!subs.isNull()) {
     for (JsonVariant v : subs) {
       Subnet s;
-      String cidr = v.as<String>();
-      cidr.trim();
-      if (cidr.length() && parseSubnet(cidr, s)) config.subnets.push_back(s);
+      if (v.is<JsonObject>()) {
+        JsonObject obj = v.as<JsonObject>();
+        s.cidr = obj["cidr"].as<String>();
+        s.name = obj["name"].as<String>();
+        s.cidr.trim();
+        if (s.cidr.length() && parseSubnet(s.cidr, s)) config.subnets.push_back(s);
+      } else {
+        String cidr = v.as<String>();
+        cidr.trim();
+        if (cidr.length() && parseSubnet(cidr, s)) config.subnets.push_back(s);
+      }
     }
   }
 
@@ -123,10 +133,6 @@ bool ConfigStore::load()
       if (h.ip.length()) config.static_hosts.push_back(h);
     }
   }
-
-  Serial.println("Config loaded");
-  Serial.print("WiFi SSID: "); Serial.println(config.wifi_ssid);
-  Serial.print("MQTT host: "); Serial.print(config.mqtt_host); Serial.print(":"); Serial.println(config.mqtt_port);
   return true;
 }
 
@@ -146,9 +152,14 @@ bool ConfigStore::save()
   mqtt["pass"] = config.mqtt_pass;
 
   doc["scan_interval_ms"] = config.scan_interval_ms;
+  doc["resolve_names"] = config.resolve_names;
 
   JsonArray subs = doc["subnets"].to<JsonArray>();
-  for (const auto &s : config.subnets) subs.add(s.cidr);
+  for (const auto &s : config.subnets) {
+    JsonObject o = subs.add<JsonObject>();
+    o["cidr"] = s.cidr;
+    o["name"] = s.name;
+  }
 
   JsonArray hosts = doc["static_hosts"].to<JsonArray>();
   for (const auto &h : config.static_hosts) {
@@ -179,6 +190,7 @@ bool ConfigStore::parseConfigPayload(const String &body)
   config.mqtt_user = doc["mqtt_user"].as<String>();
   config.mqtt_pass = doc["mqtt_pass"].as<String>();
   config.scan_interval_ms = doc["scan_interval_ms"] | DEFAULT_SCAN_INTERVAL_MS;
+  config.resolve_names = doc["resolve_names"] | true;
 
   config.subnets.clear();
   JsonArray subs = doc["subnets"].as<JsonArray>();
@@ -188,6 +200,54 @@ bool ConfigStore::parseConfigPayload(const String &body)
       String cidr = v.as<String>();
       cidr.trim();
       if (cidr.length() && parseSubnet(cidr, s)) config.subnets.push_back(s);
+    }
+  }
+
+  config.static_hosts.clear();
+  JsonArray hosts = doc["hosts"].as<JsonArray>();
+  if (!hosts.isNull()) {
+    for (JsonVariant v : hosts) {
+      StaticHost h;
+      if (parseHostLine(v.as<String>(), h)) config.static_hosts.push_back(h);
+    }
+  }
+  return true;
+}
+
+bool ConfigStore::parseTargetsPayload(const String &body)
+{
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) return false;
+
+  config.subnets.clear();
+  JsonArray subs = doc["subnets"].as<JsonArray>();
+  if (!subs.isNull()) {
+    for (JsonVariant v : subs) {
+      Subnet s;
+      if (v.is<JsonObject>()) {
+        JsonObject obj = v.as<JsonObject>();
+        s.cidr = obj["cidr"].as<String>();
+        s.name = obj["name"].as<String>();
+        s.cidr.trim();
+        if (s.cidr.length() && parseSubnet(s.cidr, s)) config.subnets.push_back(s);
+      } else {
+        String value = v.as<String>();
+        value.trim();
+        if (value.length()) {
+          int hashIndex = value.indexOf('#');
+          if (hashIndex > 0) {
+            s.cidr = value.substring(0, hashIndex);
+            s.name = value.substring(hashIndex + 1);
+            s.cidr.trim();
+            s.name.trim();
+          } else {
+            s.cidr = value;
+            s.name.clear();
+          }
+          if (s.cidr.length() && parseSubnet(s.cidr, s)) config.subnets.push_back(s);
+        }
+      }
     }
   }
 

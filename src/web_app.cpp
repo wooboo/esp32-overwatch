@@ -61,6 +61,15 @@ void WebApp::handleWsMessage(AsyncWebSocketClient* client, const String& message
         ESP.restart();
       }
     }
+  } else if (strcmp(type, "save_targets") == 0) {
+    JsonObject data = doc["data"];
+    if (data) {
+      String payload;
+      serializeJson(data, payload);
+      if (store.parseTargetsPayload(payload) && store.save()) {
+        ws.textAll("{\"type\":\"targets_saved\"}");
+      }
+    }
   }
 }
 
@@ -95,6 +104,30 @@ void WebApp::setupRoutes() {
 
   server.on("/status", HTTP_GET, [this](AsyncWebServerRequest* req) {
     req->send(200, "application/json", buildStatusJson());
+  });
+
+  server.on("/settings", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    req->send(LittleFS, "/index.html", "text/html");
+  });
+
+  // Catch-all: serve index.html for any undefined route (SPA pattern)
+  server.onNotFound([this](AsyncWebServerRequest* req) {
+    // Only handle GET requests, return 404 for others
+    if (req->method() == HTTP_GET) {
+      if (req->hasHeader("Accept-Encoding")) {
+        String encoding = req->getHeader("Accept-Encoding")->value();
+        if (encoding.indexOf("gzip") >= 0 && LittleFS.exists("/index.html.gz")) {
+          AsyncWebServerResponse* response = req->beginResponse(LittleFS, "/index.html.gz", "text/html");
+          response->addHeader("Content-Encoding", "gzip");
+          response->addHeader("Cache-Control", "no-cache");
+          req->send(response);
+          return;
+        }
+      }
+      req->send(LittleFS, "/index.html", "text/html");
+    } else {
+      req->send(404, "text/plain", "Not Found");
+    }
   });
 
   server.on("/scan_results", HTTP_GET, [this](AsyncWebServerRequest* req) {
@@ -163,7 +196,11 @@ String WebApp::buildConfigJson() {
   doc["scan_interval_ms"] = cfg.scan_interval_ms;
 
   JsonArray subs = doc["subnets"].to<JsonArray>();
-  for (const auto& s : cfg.subnets) subs.add(s.cidr);
+  for (const auto& s : cfg.subnets) {
+    JsonObject o = subs.add<JsonObject>();
+    o["cidr"] = s.cidr;
+    o["name"] = s.name;
+  }
 
   JsonArray hosts = doc["static_hosts"].to<JsonArray>();
   for (const auto& h : cfg.static_hosts) {

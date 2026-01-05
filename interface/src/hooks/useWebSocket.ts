@@ -88,6 +88,13 @@ export function useWebSocket() {
     [send]
   );
 
+  const saveTargets = useCallback(
+    (targets: { subnets: string[]; hosts: string[] }) => {
+      send('save_targets', targets);
+    },
+    [send]
+  );
+
   const triggerScan = useCallback(() => {
     send('trigger_scan');
   }, [send]);
@@ -95,6 +102,7 @@ export function useWebSocket() {
   return {
     ...state,
     saveConfig,
+    saveTargets,
     triggerScan,
   };
 }

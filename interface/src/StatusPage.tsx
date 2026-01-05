@@ -8,12 +8,16 @@ interface Props {
   scanResults: ScanResultsType | null;
   scanProgress: ScanProgress;
   connected: boolean;
+  onScan: () => void;
 }
 
-export function StatusPage({ status, scanResults, scanProgress, connected }: Props) {
+export function StatusPage({ status, scanResults, scanProgress, connected, onScan }: Props) {
   return (
     <div class="max-w-[1100px] mx-auto p-5">
-      <h1 class="text-2xl font-bold mb-3">ESP32 Network Monitor</h1>
+      <div class="flex justify-between items-center mb-3">
+        <h1 class="text-2xl font-bold">ESP32 Network Monitor</h1>
+        <Button onClick={onScan}>Run Scan</Button>
+      </div>
 
       <StatusChips
         status={status}
@@ -49,5 +53,21 @@ export function StatusPage({ status, scanResults, scanProgress, connected }: Pro
         <ScanResults title="Static Hosts" type="hosts" data={scanResults?.hosts} />
       </div>
     </div>
+  );
+}
+
+function Button({
+  children,
+  onClick,
+}: {
+  children: preact.ComponentChildren;
+  onClick: () => void;
+}) {
+  const base = 'px-3.5 py-2.5 rounded-xl font-extrabold cursor-pointer bg-accent text-bg shadow-md hover:bg-accent-hover';
+
+  return (
+    <button class={base} onClick={onClick}>
+      {children}
+    </button>
   );
 }
