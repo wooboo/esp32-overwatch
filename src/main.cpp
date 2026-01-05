@@ -16,7 +16,9 @@ NetworkScanner scanner(configStore.data(), mqttManager);
 WebApp web(configStore, scanner, mqttManager);
 
 unsigned long lastScanKickMs = 0;
+unsigned long lastStatusBroadcastMs = 0;
 bool discoverySent = false;
+bool lastScanActive = false;
 
 void setup()
 {
@@ -65,23 +67,32 @@ void setup()
 
 void loop()
 {
-  web.handle();
   wifi.loop();
   mqttManager.ensureConnected(wifi.isWifiUp(), wifi.isCaptive());
   mqttManager.loop();
 
-   if (!mqttManager.isConnected()) {
-     discoverySent = false;
-   } else if (!discoverySent) {
-     mqttManager.publishDiscovery(configStore.data().subnets, configStore.data().static_hosts);
-     discoverySent = true;
-   }
+  if (!mqttManager.isConnected()) {
+    discoverySent = false;
+  } else if (!discoverySent) {
+    mqttManager.publishDiscovery(configStore.data().subnets, configStore.data().static_hosts);
+    discoverySent = true;
+  }
 
   scanner.step();
 
   unsigned long now = millis();
-  if (!scanner.active() && (now - lastScanKickMs >= configStore.data().scan_interval_ms))
-  {
+
+  if (lastScanActive && !scanner.active()) {
+    web.broadcastScanResults();
+  }
+  lastScanActive = scanner.active();
+
+  if (now - lastStatusBroadcastMs >= 5000) {
+    web.broadcastStatus();
+    lastStatusBroadcastMs = now;
+  }
+
+  if (!scanner.active() && (now - lastScanKickMs >= configStore.data().scan_interval_ms)) {
     scanner.start();
     lastScanKickMs = now;
   }
