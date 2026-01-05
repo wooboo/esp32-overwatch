@@ -31,6 +31,26 @@ void WifiManager::startCaptivePortal()
   WiFi.softAPConfig(apIP, apIP, net);
   dns.start(DNS_PORT, "*", apIP);
   Serial.println("Captive portal at http://192.168.4.1");
+  lastCaptiveRetryMs = millis();
+}
+
+void WifiManager::tryReconnectFromCaptive()
+{
+  unsigned long now = millis();
+  if (now - lastCaptiveRetryMs >= CAPTIVE_RETRY_INTERVAL_MS) {
+    Serial.println("Attempting WiFi reconnection from captive portal");
+    lastCaptiveRetryMs = now;
+    
+    if (connectWifi()) {
+      Serial.print("WiFi reconnected: ");
+      Serial.println(WiFi.localIP());
+      captive = false;
+      dns.stop();
+      WiFi.mode(WIFI_STA);
+    } else {
+      Serial.println("WiFi reconnection failed, staying in captive portal");
+    }
+  }
 }
 
 void WifiManager::ensureConnected()
@@ -53,7 +73,10 @@ void WifiManager::ensureConnected()
 
 void WifiManager::loop()
 {
-  if (captive) dns.processNextRequest();
+  if (captive) {
+    dns.processNextRequest();
+    tryReconnectFromCaptive();
+  }
   ensureConnected();
 }
 

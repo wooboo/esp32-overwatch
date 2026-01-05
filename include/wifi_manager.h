@@ -5,7 +5,7 @@
 #include "config_store.h"
 
 class WifiManager {
-public:
+ public:
   explicit WifiManager(Config& config);
   void begin();
   void loop();
@@ -14,13 +14,17 @@ public:
   bool isWifiUp() const;
   String ip() const;
 
-private:
+ private:
   bool connectWifi();
   void startCaptivePortal();
+  void tryReconnectFromCaptive();
 
   Config& config;
   DNSServer dns;
   bool captive = false;
   bool lastWifiConnected = false;
+  
+  unsigned long lastCaptiveRetryMs = 0;
+  static constexpr unsigned long CAPTIVE_RETRY_INTERVAL_MS = 300000; // 5 minutes
   static constexpr uint16_t DNS_PORT = 53;
 };
