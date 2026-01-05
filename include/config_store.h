@@ -9,6 +9,7 @@ static const uint16_t DEFAULT_MQTT_PORT = 1883;
 static const uint16_t PING_TIMEOUT_MS = 50;
 static const uint8_t MAX_WIFI_RETRIES = 30;
 static const size_t JSON_CAPACITY = 8192;
+static const uint32_t DEFAULT_RESOLVE_NAMES_TIMEOUT_MS = 500; // 500ms per lookup
 
 struct StaticHost {
   String ip;
@@ -18,6 +19,7 @@ struct StaticHost {
 
 struct Subnet {
   String cidr;
+  String name;
   IPAddress network;
   uint8_t prefix = 24;
   uint32_t firstHost = 0;
@@ -32,6 +34,7 @@ struct Config {
   String mqtt_user;
   String mqtt_pass;
   uint32_t scan_interval_ms = DEFAULT_SCAN_INTERVAL_MS;
+  bool resolve_names = true;
   std::vector<Subnet> subnets;
   std::vector<StaticHost> static_hosts;
 };
@@ -46,6 +49,7 @@ public:
   String renderSubnets() const;
   String renderHosts() const;
   bool parseConfigPayload(const String& body);
+  bool parseTargetsPayload(const String& body);
   bool parseHostLine(const String& line, StaticHost& host) const;
   bool parseSubnet(const String& cidr, Subnet& out) const;
   bool ensureFsMounted();
